@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from models import ParserOutput
 from parser import run_parser
 from scheduler import run_scheduler
+from validator import run_validator
 
 CACHE_FILE = "parser_output.json"
 
@@ -54,6 +55,24 @@ def main():
     print("SCHEDULER OUTPUT")
     print("=" * 60)
     print(json.dumps(schedule, indent=2))
+
+    # AGENT 3: Validator & Formatter
+    print("\n" + "=" * 60)
+    print("AGENT 3: Validator & Formatter")
+    print("=" * 60)
+
+    csv_output = run_validator(parser_output, schedule)
+
+    # Write CSV to file
+    output_file = "study_plan.csv"
+    with open(output_file, "w") as f:
+        f.write(csv_output)
+    print(f"\nStudy plan written to {output_file}")
+
+    print("\n" + "=" * 60)
+    print("FINAL CSV OUTPUT")
+    print("=" * 60)
+    print(csv_output)
 
 
 if __name__ == "__main__":
