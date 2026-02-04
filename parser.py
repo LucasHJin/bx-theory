@@ -8,7 +8,7 @@ from datetime import datetime
 import pdfplumber
 from google import genai
 from google.genai import types
-from google.genai.errors import ClientError
+from google.genai.errors import ClientError, ServerError
 
 from models import Topic, Course, UserPreferences, ParserOutput
 
@@ -26,11 +26,11 @@ def get_client() -> genai.Client:
     )
 
 
-MODEL = "gemini-3-flash"
+MODEL = "gemini-2.5-flash-lite"
 
 
 def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
-    """Call Gemini with automatic retry on rate-limit (429) errors.
+    """Call Gemini with automatic retry on rate-limit (429) and overload (503) errors.
 
     The SDK's internal retries are disabled so we control the pacing here.
     """
@@ -45,15 +45,17 @@ def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
                 ),
             )
             return response.text
-        except ClientError as e:
-            if "429" in str(e) and attempt < max_retries - 1:
+        except (ClientError, ServerError) as e:
+            err_str = str(e)
+            is_retryable = "429" in err_str or "503" in err_str
+            if is_retryable and attempt < max_retries - 1:
                 # Parse retry delay from error if available
-                retry_match = re.search(r"retry in ([\d.]+)s", str(e))
+                retry_match = re.search(r"retry in ([\d.]+)s", err_str)
                 if retry_match:
                     wait = int(float(retry_match.group(1))) + 5
                 else:
-                    wait = 60  # default to 60s for free-tier minute window
-                print(f"    Rate limited, waiting {wait}s before retry...")
+                    wait = 60
+                print(f"    Retryable error, waiting {wait}s before retry...")
                 time.sleep(wait)
             else:
                 raise

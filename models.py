@@ -33,3 +33,19 @@ class ParserOutput:
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "ParserOutput":
+        data = json.loads(json_str)
+        courses = {}
+        for code, c in data["courses"].items():
+            topics = [Topic(**t) for t in c["topics"]]
+            courses[code] = Course(
+                name=c["name"],
+                midterm_date=c["midterm_date"],
+                midterm_weight=c["midterm_weight"],
+                topics=topics,
+                total_pages=c["total_pages"],
+            )
+        prefs = UserPreferences(**data["preferences"])
+        return cls(courses=courses, preferences=prefs)
