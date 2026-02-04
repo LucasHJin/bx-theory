@@ -175,11 +175,136 @@ Generate the complete schedule now."""
 
 
 # ---------------------------------------------------------------------------
+# Step 2b: Regenerate schedule with error feedback
+# ---------------------------------------------------------------------------
+
+def regenerate_schedule(
+    client,
+    parser_output: ParserOutput,
+    priorities: dict,
+    previous_schedule: list[dict],
+    errors: list[str],
+) -> list[dict]:
+    """Re-generate the schedule, feeding back validation errors to fix."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    prefs = asdict(parser_output.preferences)
+
+    courses_spec = {}
+    latest_exam = None
+    for code, course in parser_output.courses.items():
+        exam_dt = datetime.strptime(course.midterm_date, "%Y-%m-%d")
+        last_study = (exam_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+        if latest_exam is None or course.midterm_date > latest_exam:
+            latest_exam = course.midterm_date
+
+        courses_spec[code] = {
+            "midterm_date": course.midterm_date,
+            "last_valid_study_date": last_study,
+            "midterm_weight": course.midterm_weight,
+            "total_pages": course.total_pages,
+            "topics": [
+                {"name": t.name, "pages": t.pages}
+                for t in course.topics
+            ],
+        }
+
+    valid_topics = {}
+    for code, course in parser_output.courses.items():
+        valid_topics[code] = [t.name for t in course.topics]
+
+    valid_dates = _get_valid_dates(start_date, latest_exam, prefs.get("rest_days", []))
+
+    error_list = "\n".join(f"- {e}" for e in errors)
+
+    prompt = f"""You are a study schedule generator. Your PREVIOUS schedule had validation errors.
+Fix ALL of the errors listed below and produce a corrected day-by-day study plan.
+
+## ERRORS TO FIX
+{error_list}
+
+## PREVIOUS SCHEDULE (for reference — fix the errors, keep what was correct)
+{json.dumps(previous_schedule, indent=2)}
+
+## CONTEXT
+today: "{today}"
+scheduling_window: "{start_date}" to "{valid_dates[-1]}" (inclusive)
+
+## COURSES
+{json.dumps(courses_spec, indent=2)}
+
+## PRIORITIES
+{json.dumps(priorities, indent=2)}
+
+## USER PREFERENCES
+{json.dumps(prefs)}
+
+## VALID DATES (use ONLY these dates, no others)
+{json.dumps(valid_dates)}
+
+## VALID TOPIC NAMES (use ONLY these exact strings for each course)
+{json.dumps(valid_topics)}
+
+## STRICT RULES
+1. "date" values MUST come from the VALID DATES list above. No other dates allowed.
+2. "course" values MUST be one of: {json.dumps(list(courses_spec.keys()))}
+3. "topic" values MUST exactly match one of the VALID TOPIC NAMES for that course. Do NOT invent new topic names.
+4. "type" values MUST be exactly one of: "learning", "review_1", "review_2". No other values.
+5. "hours" must be a number > 0, with at most one decimal place.
+6. Total hours per day MUST NOT exceed {prefs['max_hours_per_day']}.
+7. Every topic for every course MUST appear exactly once with type "learning".
+8. Every topic MUST appear at least once with type "review_1", scheduled 3-5 days after its "learning" session.
+9. High-page topics (>= 40 pages) should also get a "review_2" session, scheduled closer to the exam.
+10. All sessions for a course MUST have a date STRICTLY BEFORE that course's midterm_date (i.e. on or before last_valid_study_date).
+11. The last study session for each course should be on or near last_valid_study_date (1-2 days before exam).
+12. Learning sessions: 2-4 hours based on topic page count. Review sessions: 0.5-1.5 hours.
+13. Spread topics across days. Avoid scheduling all topics for one course on the same day.
+14. Higher priority courses get more total study hours.
+
+## OUTPUT FORMAT
+Return a JSON array. Each element is a day object. Only include days with sessions.
+
+[
+  {{
+    "date": "YYYY-MM-DD",
+    "sessions": [
+      {{
+        "course": "COURSE_CODE",
+        "topic": "Exact Topic Name",
+        "hours": 2.5,
+        "type": "learning"
+      }}
+    ]
+  }}
+]
+
+Generate the corrected schedule now."""
+
+    raw = _llm_call(client, prompt)
+    return json.loads(raw)
+
+
+# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def run_scheduler(parser_output: ParserOutput) -> list[dict]:
-    """Run the scheduler agent pipeline."""
+def _print_schedule_stats(schedule: list[dict]) -> None:
+    """Print summary stats for a schedule."""
+    total_sessions = sum(len(day["sessions"]) for day in schedule)
+    total_hours = sum(
+        s["hours"] for day in schedule for s in day["sessions"]
+    )
+    print(f"  Generated {len(schedule)} study days")
+    print(f"  Total sessions: {total_sessions}")
+    print(f"  Total study hours: {total_hours:.1f}")
+
+
+def run_scheduler(parser_output: ParserOutput) -> tuple[list[dict], dict]:
+    """Run the scheduler agent pipeline.
+
+    Returns (schedule, priorities) so priorities can be reused for retries.
+    """
     client = get_client()
 
     # Step 1: Determine priorities
@@ -195,14 +320,20 @@ def run_scheduler(parser_output: ParserOutput) -> list[dict]:
     # Step 2: Generate schedule
     print("\nGenerating study schedule...")
     schedule = generate_schedule(client, parser_output, priorities)
-    print(f"  Generated {len(schedule)} study days")
+    _print_schedule_stats(schedule)
 
-    # Print summary stats
-    total_sessions = sum(len(day["sessions"]) for day in schedule)
-    total_hours = sum(
-        s["hours"] for day in schedule for s in day["sessions"]
-    )
-    print(f"  Total sessions: {total_sessions}")
-    print(f"  Total study hours: {total_hours:.1f}")
+    return schedule, priorities
 
+
+def run_scheduler_retry(
+    parser_output: ParserOutput,
+    priorities: dict,
+    previous_schedule: list[dict],
+    errors: list[str],
+) -> list[dict]:
+    """Re-run just the schedule generation with error feedback."""
+    client = get_client()
+    print("Regenerating schedule with error feedback...")
+    schedule = regenerate_schedule(client, parser_output, priorities, previous_schedule, errors)
+    _print_schedule_stats(schedule)
     return schedule

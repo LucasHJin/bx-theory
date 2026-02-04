@@ -182,8 +182,11 @@ def _format_csv(schedule: list[dict], issues: list[str]) -> str:
 # Orchestration
 # ---------------------------------------------------------------------------
 
-def run_validator(parser_output: ParserOutput, schedule: list[dict]) -> str:
-    """Run all validation checks and format the final CSV."""
+def run_validator(parser_output: ParserOutput, schedule: list[dict]) -> tuple[str, list[str], list[str]]:
+    """Run all validation checks and format the final CSV.
+
+    Returns (csv_output, errors, warnings).
+    """
 
     all_issues: list[str] = []
 
@@ -211,11 +214,11 @@ def run_validator(parser_output: ParserOutput, schedule: list[dict]) -> str:
     all_issues.extend(issues)
     print(f"  {len(issues)} issue(s)")
 
-    # Summary
+    # Separate errors and warnings
     errors = [i for i in all_issues if i.startswith("ERROR")]
     warnings = [i for i in all_issues if i.startswith("WARNING")]
     print(f"\nValidation complete: {len(errors)} error(s), {len(warnings)} warning(s)")
 
     # Format CSV
     csv_output = _format_csv(schedule, all_issues)
-    return csv_output
+    return csv_output, errors, warnings

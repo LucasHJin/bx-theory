@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 from models import ParserOutput
 from parser import run_parser
-from scheduler import run_scheduler
+from scheduler import run_scheduler, run_scheduler_retry
 from validator import run_validator
 
 CACHE_FILE = "parser_output.json"
@@ -49,19 +49,37 @@ def main():
     print("AGENT 2: Scheduler")
     print("=" * 60)
 
-    schedule = run_scheduler(parser_output)
+    schedule, priorities = run_scheduler(parser_output)
 
-    print("\n" + "=" * 60)
-    print("SCHEDULER OUTPUT")
-    print("=" * 60)
-    print(json.dumps(schedule, indent=2))
+    # AGENT 3 + retry loop: Validate → feed errors back → regenerate
+    MAX_RETRIES = 3
 
-    # AGENT 3: Validator & Formatter
-    print("\n" + "=" * 60)
-    print("AGENT 3: Validator & Formatter")
-    print("=" * 60)
+    for attempt in range(1, MAX_RETRIES + 1):
+        print("\n" + "=" * 60)
+        print(f"AGENT 3: Validator & Formatter (attempt {attempt}/{MAX_RETRIES})")
+        print("=" * 60)
 
-    csv_output = run_validator(parser_output, schedule)
+        csv_output, errors, warnings = run_validator(parser_output, schedule)
+
+        if not errors:
+            print("\nNo errors found — schedule is valid.")
+            break
+
+        if attempt < MAX_RETRIES:
+            print(f"\n{len(errors)} error(s) found. Feeding back to scheduler...")
+            for e in errors:
+                print(f"  {e}")
+
+            print("\n" + "=" * 60)
+            print(f"AGENT 2: Scheduler (retry {attempt})")
+            print("=" * 60)
+
+            schedule = run_scheduler_retry(
+                parser_output, priorities, schedule, errors
+            )
+        else:
+            print(f"\n{len(errors)} error(s) remain after {MAX_RETRIES} attempts.")
+            print("Outputting best schedule with warnings.")
 
     # Write CSV to file
     output_file = "study_plan.csv"
