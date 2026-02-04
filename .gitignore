@@ -1,3 +1,5 @@
 .env
 files/
 ARCHITECTURE.md
+.claude
+__pycache__/
