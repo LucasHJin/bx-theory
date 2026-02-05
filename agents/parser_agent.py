@@ -23,7 +23,6 @@ from .parser import (
     parse_midterm_topics,
     parse_midterm_weight,
     parse_textbook_toc,
-    parse_user_preferences,
 )
 
 
