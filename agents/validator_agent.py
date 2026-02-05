@@ -4,7 +4,7 @@ import json
 import os
 
 from google.adk.agents import LlmAgent
-from google.adk.tools import ToolContext
+from google.adk.tools.tool_context import ToolContext
 
 from .models import ParserOutput
 from .validator import run_validator
@@ -24,7 +24,7 @@ def validate_and_format(tool_context: ToolContext) -> str:
     Use this tool to check the generated schedule for errors and produce final output.
 
     Validation checks:
-    1. Daily study hours don't exceed user's max_hours_per_day limit
+    1. Daily study hours don't exceed user's max_hours_per_day limit (if it's not None)
     2. All required topics have learning sessions
     3. All sessions are scheduled before their course's exam date
     4. Spaced repetition is properly applied (review sessions after learning)

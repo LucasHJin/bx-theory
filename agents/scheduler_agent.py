@@ -3,7 +3,7 @@
 import json
 
 from google.adk.agents import LlmAgent
-from google.adk.tools import ToolContext
+from google.adk.tools.tool_context import ToolContext
 
 from .models import ParserOutput
 from .parser import get_client

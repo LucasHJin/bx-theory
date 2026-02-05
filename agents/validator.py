@@ -9,7 +9,7 @@ from .models import ParserOutput
 # Validation checks
 # ---------------------------------------------------------------------------
 
-def _check_daily_hours(schedule: list[dict], max_hours: int) -> list[str]:
+def _check_daily_hours(schedule: list[dict], max_hours: int | None) -> list[str]:
     """Check 1: Reasonable daily hours."""
     issues = []
     for day in schedule:
@@ -17,7 +17,7 @@ def _check_daily_hours(schedule: list[dict], max_hours: int) -> list[str]:
         total = sum(s["hours"] for s in day["sessions"])
         if total > 8:
             issues.append(f"ERROR: Day {date} has {total} hours (exceeds 8 hour maximum)")
-        elif total > max_hours:
+        elif max_hours is not None and total > max_hours:
             issues.append(f"WARNING: Day {date} has {total} hours (exceeds user preference of {max_hours} hours)")
     return issues
 

@@ -122,8 +122,13 @@ def generate_schedule(client, parser_output: ParserOutput, priorities: dict) -> 
         if code in courses_spec:  # Only courses with midterm dates
             valid_topics[code] = [t.name for t in course.topics]
 
-    # Compute valid scheduling dates
+    # Compute valid scheduling dates (latest_exam is guaranteed non-None since courses_spec is non-empty)
+    assert latest_exam is not None
     valid_dates = _get_valid_dates(start_date, latest_exam, prefs.get("rest_days", []))
+
+    # Build max hours rule conditionally
+    max_hours = prefs.get("max_hours_per_day")
+    max_hours_rule = f"6. Total hours per day MUST NOT exceed {max_hours}." if max_hours else "6. Total hours per day should be reasonable (4-6 hours recommended)."
 
     prompt = f"""You are a study schedule generator. Produce a day-by-day study plan.
 
@@ -152,7 +157,7 @@ scheduling_window: "{start_date}" to "{valid_dates[-1]}" (inclusive)
 3. "topic" values MUST exactly match one of the VALID TOPIC NAMES for that course. Do NOT invent new topic names like "Comprehensive Review" or "Final Review".
 4. "type" values MUST be exactly one of: "learning", "review_1", "review_2". No other values.
 5. "hours" must be a number > 0, with at most one decimal place.
-6. Total hours per day MUST NOT exceed {prefs['max_hours_per_day']}.
+{max_hours_rule}
 7. Every topic for every course MUST appear exactly once with type "learning".
 8. Every topic MUST appear at least once with type "review_1", scheduled 3-5 days after its "learning" session.
 9. High-page topics (>= 40 pages) should also get a "review_2" session, scheduled closer to the exam.
@@ -233,9 +238,13 @@ def regenerate_schedule(
         if course.midterm_date:  # Only include courses with midterm dates
             valid_topics[code] = [t.name for t in course.topics]
 
-    valid_dates = _get_valid_dates(start_date, latest_exam, prefs.get("rest_days", []))
+    valid_dates = _get_valid_dates(start_date, latest_exam, prefs.get("rest_days", [])) if latest_exam else []
 
     error_list = "\n".join(f"- {e}" for e in errors)
+
+    # Build max hours rule conditionally
+    max_hours = prefs.get("max_hours_per_day")
+    max_hours_rule = f"6. Total hours per day MUST NOT exceed {max_hours}." if max_hours else "6. Total hours per day should be reasonable (4-6 hours recommended)."
 
     prompt = f"""You are a study schedule generator. Your PREVIOUS schedule had validation errors.
 Fix ALL of the errors listed below and produce a corrected day-by-day study plan.
@@ -248,7 +257,7 @@ Fix ALL of the errors listed below and produce a corrected day-by-day study plan
 
 ## CONTEXT
 today: "{today}"
-scheduling_window: "{start_date}" to "{valid_dates[-1]}" (inclusive)
+scheduling_window: "{start_date}" to "{valid_dates[-1] if valid_dates else 'N/A'}" (inclusive)
 
 ## COURSES
 {json.dumps(courses_spec, indent=2)}
@@ -271,7 +280,7 @@ scheduling_window: "{start_date}" to "{valid_dates[-1]}" (inclusive)
 3. "topic" values MUST exactly match one of the VALID TOPIC NAMES for that course. Do NOT invent new topic names.
 4. "type" values MUST be exactly one of: "learning", "review_1", "review_2". No other values.
 5. "hours" must be a number > 0, with at most one decimal place.
-6. Total hours per day MUST NOT exceed {prefs['max_hours_per_day']}.
+{max_hours_rule}
 7. Every topic for every course MUST appear exactly once with type "learning".
 8. Every topic MUST appear at least once with type "review_1", scheduled 3-5 days after its "learning" session.
 9. High-page topics (>= 40 pages) should also get a "review_2" session, scheduled closer to the exam.

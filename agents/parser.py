@@ -21,8 +21,9 @@ def get_client() -> genai.Client:
     return genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(
-            retryOptions=types.HttpRetryOptions(attempts=1),
+            retry_options=types.HttpRetryOptions(attempts=1),
         ),
+        vertexai=False
     )
 
 
@@ -543,7 +544,7 @@ def parse_user_preferences(client: genai.Client, user_message: str) -> UserPrefe
     prompt = f"""Convert this student's study preferences into structured parameters.
 
 Extract the following (use defaults if not mentioned):
-- max_hours_per_day: integer, how many hours max they can study per day (default: 6)
+- max_hours_per_day: integer, how many hours max they can study per day (default: None)
 - preferred_study_times: list of strings from ["morning", "afternoon", "evening"] (default: ["morning", "afternoon"])
 - rest_days: list of day names like ["Sunday"] (default: [])
 - study_style: one of "intensive", "spaced_repetition", "balanced" (default: "spaced_repetition")
@@ -556,8 +557,9 @@ Student message:
 
     raw = _llm_call(client, prompt)
     data = json.loads(raw)
+    max_hours = data.get("max_hours_per_day")
     return UserPreferences(
-        max_hours_per_day=int(data.get("max_hours_per_day", 6)),
+        max_hours_per_day=int(max_hours) if max_hours is not None else None,
         preferred_study_times=data.get("preferred_study_times", ["morning", "afternoon"]),
         rest_days=data.get("rest_days", []),
         study_style=data.get("study_style", "spaced_repetition"),

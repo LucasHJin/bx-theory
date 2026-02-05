@@ -11,7 +11,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from google.adk.agents import LlmAgent
-from google.adk.tools import ToolContext
+from google.adk.tools.tool_context import ToolContext
 
 from .models import Topic, Course, UserPreferences, ParserOutput
 from .parser import (
@@ -161,16 +161,7 @@ def process_uploaded_files(tool_context: ToolContext) -> str:
             syllabus_text = extract_pdf_text(str(files["syllabus"]))
             midterm_weight = parse_midterm_weight(client, syllabus_text)
             print(f"  Midterm #1 weight: {midterm_weight}%")
-
-            # Fallback: extract midterm date from syllabus if no midterm file
-            if not midterm_date and syllabus_text:
-                print("  No midterm file found, extracting date from syllabus...")
-                midterm_date = parse_midterm_date_from_syllabus(client, syllabus_text)
-                if midterm_date:
-                    print(f"  Found midterm date in syllabus: {midterm_date}")
-                else:
-                    print("  Could not find midterm date in syllabus")
-
+            
         # Parse textbook for page counts
         total_pages = 0
         if "textbook" in files and chapters_covered:
@@ -204,7 +195,7 @@ def process_uploaded_files(tool_context: ToolContext) -> str:
 
 def set_preferences(
     tool_context: ToolContext,
-    max_hours_per_day: int = 6,
+    max_hours_per_day: int | None = None,
     preferred_times: str = "morning,afternoon",
     rest_days: str = "",
     study_style: str = "spaced_repetition"
@@ -212,7 +203,7 @@ def set_preferences(
     """Set user study preferences.
 
     Args:
-        max_hours_per_day: Maximum study hours per day (default: 6)
+        max_hours_per_day: Maximum study hours per day (default: None)
         preferred_times: Comma-separated times: morning,afternoon,evening (default: morning,afternoon)
         rest_days: Comma-separated rest days: Sunday,Saturday (default: none)
         study_style: One of: spaced_repetition, intensive, balanced (default: spaced_repetition)
@@ -235,8 +226,9 @@ def set_preferences(
     parser_output_dict["preferences"] = asdict(preferences)
     tool_context.state["parser_output"] = parser_output_dict
 
+    hours_str = f"max {max_hours_per_day} hrs/day" if max_hours_per_day else "no hour limit"
     return (
-        f"Set preferences: max {max_hours_per_day} hrs/day, "
+        f"Set preferences: {hours_str}, "
         f"times: {times_list}, rest days: {rest_list}, style: {study_style}"
     )
 

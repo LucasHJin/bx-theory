@@ -20,7 +20,7 @@ class Course:
 
 @dataclass
 class UserPreferences:
-    max_hours_per_day: int = 6
+    max_hours_per_day: int | None = None
     preferred_study_times: list[str] = field(default_factory=lambda: ["morning", "afternoon"])
     rest_days: list[str] = field(default_factory=list)
     study_style: str = "spaced_repetition"
