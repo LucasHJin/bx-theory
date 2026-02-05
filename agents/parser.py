@@ -36,6 +36,7 @@ def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
     """
     for attempt in range(max_retries):
         try:
+            print(f"    [LLM] Calling {MODEL} (attempt {attempt + 1}/{max_retries}, prompt: {len(prompt)} chars)...")
             response = client.models.generate_content(
                 model=MODEL,
                 contents=prompt,
@@ -44,7 +45,9 @@ def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
                     temperature=0.0,
                 ),
             )
-            return response.text
+            result = response.text or ""
+            print(f"    [LLM] Response received ({len(result)} chars)")
+            return result
         except (ClientError, ServerError) as e:
             err_str = str(e)
             is_retryable = "429" in err_str or "503" in err_str
@@ -55,9 +58,10 @@ def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
                     wait = int(float(retry_match.group(1))) + 5
                 else:
                     wait = 15
-                print(f"    Retryable error, waiting {wait}s before retry...")
+                print(f"    [LLM] Retryable error ({err_str[:50]}...), waiting {wait}s...")
                 time.sleep(wait)
             else:
+                print(f"    [LLM] Non-retryable error: {err_str[:100]}")
                 raise
     return ""
 
@@ -66,8 +70,16 @@ def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
 # File classification
 # ---------------------------------------------------------------------------
 
-def _classify_file_by_content(client: genai.Client, pdf_path: Path) -> dict | None:
+def _classify_file_by_content(
+    client: genai.Client, pdf_path: Path, known_courses: list[str] | None = None
+) -> dict | None:
     """Use LLM to classify a PDF by reading its first few pages.
+
+    Args:
+        client: Gemini client
+        pdf_path: Path to the PDF file
+        known_courses: Optional list of known course codes to help match documents
+                       that use course names instead of codes (e.g., "Systems Dynamics" -> "SYSD 300")
 
     Returns dict with 'course_code' and 'file_type' or None if can't classify.
     """
@@ -79,10 +91,23 @@ def _classify_file_by_content(client: genai.Client, pdf_path: Path) -> dict | No
         # Truncate to avoid token limits
         text = text[:4000]
 
+        # Build course hint if we have known courses
+        course_hint = ""
+        if known_courses:
+            course_hint = f"""
+IMPORTANT: The following courses are known to exist: {known_courses}
+If the document mentions a course by name (e.g., "Systems Dynamics", "Quantum Mechanics", "Health Promotion")
+but doesn't have an explicit course code, match it to one of these known courses.
+For example:
+- "Systems Dynamics" or "SD" -> "SYSD 300"
+- "Quantum Mechanics" -> "PHYS 234"
+- "Health Promotion" -> "HLTH 204"
+"""
+
         prompt = f"""Analyze this document excerpt and identify:
 1. The course code (e.g., "PHYS 234", "HLTH 204", "SYSD 300")
 2. The document type: "syllabus", "midterm" (midterm overview/study guide), or "textbook"
-
+{course_hint}
 Return ONLY a JSON object with these keys:
 - "course_code": the course code as a string (e.g., "PHYS 234"), or null if this is a textbook
 - "file_type": one of "syllabus", "midterm", or "textbook"
@@ -105,6 +130,10 @@ def classify_files(files_dir: str) -> dict[str, dict[str, Path]]:
 
     Works with both named files (e.g., "PHYS 234 - Syllabus.pdf") and
     generic uploaded files (e.g., "uploaded_1.pdf") by using content-based classification.
+
+    Uses two-pass classification:
+    1. First pass: Discover courses from files with explicit course codes (usually syllabi)
+    2. Second pass: Match remaining files using discovered course codes as hints
     """
     courses: dict[str, dict[str, Path]] = {}
     pdf_files = sorted(Path(files_dir).glob("*.pdf"))
@@ -120,10 +149,13 @@ def classify_files(files_dir: str) -> dict[str, dict[str, Path]]:
         pdf.name.startswith("uploaded_") or not re.match(r"^[A-Z]{2,5}\s*\d{2,4}", pdf.name)
         for pdf in pdf_files
     ):
-        print("Using content-based file classification...")
+        print("Using content-based file classification (two-pass)...")
         client = get_client()
         textbooks: list[Path] = []
+        unclassified: list[tuple[Path, str]] = []  # Files that couldn't be matched in first pass
 
+        # FIRST PASS: Classify all files without hints to discover course codes
+        print("Pass 1: Discovering courses...")
         for pdf_path in pdf_files:
             print(f"  Classifying {pdf_path.name}...")
             classification = _classify_file_by_content(client, pdf_path)
@@ -133,7 +165,11 @@ def classify_files(files_dir: str) -> dict[str, dict[str, Path]]:
                 file_type = classification.get("file_type", "").lower()
 
                 if file_type == "textbook" or not course_code:
-                    textbooks.append(pdf_path)
+                    if file_type == "textbook":
+                        textbooks.append(pdf_path)
+                    else:
+                        # File couldn't be matched to a course - save for second pass
+                        unclassified.append((pdf_path, file_type))
                 elif course_code:
                     if course_code not in courses:
                         courses[course_code] = {}
@@ -143,10 +179,37 @@ def classify_files(files_dir: str) -> dict[str, dict[str, Path]]:
                     elif file_type in ("midterm", "overview"):
                         courses[course_code]["midterm"] = pdf_path
                     print(f"    -> {course_code} ({file_type})")
+            else:
+                unclassified.append((pdf_path, "unknown"))
+
+        # SECOND PASS: Re-classify unmatched files using discovered courses as hints
+        if unclassified and courses:
+            known_courses = list(courses.keys())
+            print(f"\nPass 2: Matching {len(unclassified)} unclassified files using known courses: {known_courses}")
+
+            for pdf_path, prev_type in unclassified:
+                print(f"  Re-classifying {pdf_path.name}...")
+                classification = _classify_file_by_content(client, pdf_path, known_courses=known_courses)
+
+                if classification:
+                    course_code = classification.get("course_code")
+                    file_type = classification.get("file_type", "").lower()
+
+                    if file_type == "textbook":
+                        textbooks.append(pdf_path)
+                    elif course_code:
+                        if course_code not in courses:
+                            courses[course_code] = {}
+
+                        if file_type == "syllabus" and "syllabus" not in courses[course_code]:
+                            courses[course_code]["syllabus"] = pdf_path
+                        elif file_type in ("midterm", "overview") and "midterm" not in courses[course_code]:
+                            courses[course_code]["midterm"] = pdf_path
+                        print(f"    -> {course_code} ({file_type})")
 
         # Match textbooks to courses
         if textbooks and courses:
-            print("Matching textbooks to courses...")
+            print("\nMatching textbooks to courses...")
             for textbook in textbooks:
                 best_match = _match_textbook_to_course(client, textbook, courses)
                 if best_match and "textbook" not in courses[best_match]:
@@ -367,13 +430,31 @@ Syllabus text:
 # Textbook TOC parsing (page counts per chapter)
 # ---------------------------------------------------------------------------
 
+def _extract_toc_text_fast(pdf_path: str, max_pages: int = 10) -> str:
+    """Extract text from first few pages - tries pypdf first (faster), falls back to pdfplumber."""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(pdf_path)
+        text_parts = []
+        for page in reader.pages[:max_pages]:
+            text = page.extract_text()
+            if text:
+                text_parts.append(text)
+        return "\n\n".join(text_parts)
+    except ImportError:
+        # Fall back to pdfplumber if pypdf not available
+        return extract_pdf_text(pdf_path, max_pages=max_pages)
+
+
 def parse_textbook_toc(pdf_path: str, chapters_needed: list[str]) -> dict[str, int]:
     """Extract page counts per chapter from textbook TOC.
 
     Returns a dict mapping chapter number (str) to page count (int).
     """
-    # Extract first 20 pages where TOC typically lives
-    toc_text = extract_pdf_text(pdf_path, max_pages=20)
+    # Extract first 10 pages where TOC typically lives
+    print("    Extracting TOC (first 10 pages)...")
+    toc_text = _extract_toc_text_fast(pdf_path, max_pages=10)
+    print(f"    Extracted {len(toc_text)} chars of TOC text")
 
     # Try to find chapter page numbers from TOC
     # Common patterns: "Chapter 1 Title ... 15" or "1 Title 15" or "Chapter 1. Title 15"

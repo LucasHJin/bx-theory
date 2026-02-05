@@ -165,6 +165,11 @@ def process_uploaded_files(tool_context: ToolContext) -> str:
             # Fallback: extract midterm date from syllabus if no midterm file
             if not midterm_date and syllabus_text:
                 print("  No midterm file found, extracting date from syllabus...")
+                midterm_date = parse_midterm_date_from_syllabus(client, syllabus_text)
+                if midterm_date:
+                    print(f"  Found midterm date in syllabus: {midterm_date}")
+                else:
+                    print("  Could not find midterm date in syllabus")
 
         # Parse textbook for page counts
         total_pages = 0
