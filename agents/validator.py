@@ -2,7 +2,7 @@ import csv
 import io
 from datetime import datetime
 
-from models import ParserOutput
+from .models import ParserOutput
 
 
 # ---------------------------------------------------------------------------
@@ -55,6 +55,10 @@ def _check_study_before_exam(schedule: list[dict], parser_output: ParserOutput) 
             course_dates.setdefault(s["course"], []).append(day["date"])
 
     for code, course in parser_output.courses.items():
+        # Skip courses without midterm dates (can't validate schedule timing)
+        if not course.midterm_date:
+            continue
+
         dates = course_dates.get(code, [])
         if not dates:
             issues.append(f"ERROR: Course {code} has no scheduled sessions")

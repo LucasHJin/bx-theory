@@ -3,3 +3,4 @@ files/
 ARCHITECTURE.md
 .claude
 __pycache__/
+.adk/

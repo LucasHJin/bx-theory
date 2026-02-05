@@ -2,8 +2,8 @@ import json
 from dataclasses import asdict
 from datetime import datetime, timedelta
 
-from models import ParserOutput
-from parser import get_client, _llm_call
+from .models import ParserOutput
+from .parser import get_client, _llm_call
 
 
 # ---------------------------------------------------------------------------
@@ -84,10 +84,16 @@ def generate_schedule(client, parser_output: ParserOutput, priorities: dict) -> 
     prefs = asdict(parser_output.preferences)
 
     # Pre-compute per-course data with strict constraints
+    # Skip courses without midterm dates
     courses_spec = {}
     earliest_exam = None
     latest_exam = None
     for code, course in parser_output.courses.items():
+        # Skip courses without a midterm date
+        if not course.midterm_date:
+            print(f"  Skipping {code} - no midterm date specified")
+            continue
+
         exam_dt = datetime.strptime(course.midterm_date, "%Y-%m-%d")
         last_study = (exam_dt - timedelta(days=1)).strftime("%Y-%m-%d")
         if earliest_exam is None or course.midterm_date < earliest_exam:
@@ -106,10 +112,15 @@ def generate_schedule(client, parser_output: ParserOutput, priorities: dict) -> 
             ],
         }
 
+    if not courses_spec:
+        return []  # No courses with midterm dates
+
     # Build list of all valid topic names per course for strict validation
+    # Only include courses that have midterm dates (i.e., are in courses_spec)
     valid_topics = {}
     for code, course in parser_output.courses.items():
-        valid_topics[code] = [t.name for t in course.topics]
+        if code in courses_spec:  # Only courses with midterm dates
+            valid_topics[code] = [t.name for t in course.topics]
 
     # Compute valid scheduling dates
     valid_dates = _get_valid_dates(start_date, latest_exam, prefs.get("rest_days", []))
@@ -194,6 +205,10 @@ def regenerate_schedule(
     courses_spec = {}
     latest_exam = None
     for code, course in parser_output.courses.items():
+        # Skip courses without a midterm date
+        if not course.midterm_date:
+            continue
+
         exam_dt = datetime.strptime(course.midterm_date, "%Y-%m-%d")
         last_study = (exam_dt - timedelta(days=1)).strftime("%Y-%m-%d")
         if latest_exam is None or course.midterm_date > latest_exam:
@@ -210,9 +225,13 @@ def regenerate_schedule(
             ],
         }
 
+    if not courses_spec:
+        return []  # No courses with midterm dates
+
     valid_topics = {}
     for code, course in parser_output.courses.items():
-        valid_topics[code] = [t.name for t in course.topics]
+        if course.midterm_date:  # Only include courses with midterm dates
+            valid_topics[code] = [t.name for t in course.topics]
 
     valid_dates = _get_valid_dates(start_date, latest_exam, prefs.get("rest_days", []))
 

@@ -10,7 +10,7 @@ from google import genai
 from google.genai import types
 from google.genai.errors import ClientError, ServerError
 
-from models import Topic, Course, UserPreferences, ParserOutput
+from .models import Topic, Course, UserPreferences, ParserOutput
 
 
 def get_client() -> genai.Client:
@@ -26,7 +26,7 @@ def get_client() -> genai.Client:
     )
 
 
-MODEL = "gemini-2.5-flash-lite"
+MODEL = "gemini-3-flash-preview"
 
 
 def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
@@ -54,7 +54,7 @@ def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
                 if retry_match:
                     wait = int(float(retry_match.group(1))) + 5
                 else:
-                    wait = 60
+                    wait = 15
                 print(f"    Retryable error, waiting {wait}s before retry...")
                 time.sleep(wait)
             else:
@@ -66,11 +66,96 @@ def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
 # File classification
 # ---------------------------------------------------------------------------
 
+def _classify_file_by_content(client: genai.Client, pdf_path: Path) -> dict | None:
+    """Use LLM to classify a PDF by reading its first few pages.
+
+    Returns dict with 'course_code' and 'file_type' or None if can't classify.
+    """
+    try:
+        text = extract_pdf_text(str(pdf_path), max_pages=3)
+        if not text or len(text) < 100:
+            return None
+
+        # Truncate to avoid token limits
+        text = text[:4000]
+
+        prompt = f"""Analyze this document excerpt and identify:
+1. The course code (e.g., "PHYS 234", "HLTH 204", "SYSD 300")
+2. The document type: "syllabus", "midterm" (midterm overview/study guide), or "textbook"
+
+Return ONLY a JSON object with these keys:
+- "course_code": the course code as a string (e.g., "PHYS 234"), or null if this is a textbook
+- "file_type": one of "syllabus", "midterm", or "textbook"
+
+If this is a textbook, set course_code to null (we'll match it to a course later).
+
+Document excerpt:
+{text}"""
+
+        raw = _llm_call(client, prompt)
+        result = json.loads(raw)
+        return result
+    except Exception as e:
+        print(f"  Warning: Could not classify {pdf_path.name}: {e}")
+        return None
+
+
 def classify_files(files_dir: str) -> dict[str, dict[str, Path]]:
-    """Group PDF files by course code and type (syllabus/midterm/textbook)."""
+    """Group PDF files by course code and type (syllabus/midterm/textbook).
+
+    Works with both named files (e.g., "PHYS 234 - Syllabus.pdf") and
+    generic uploaded files (e.g., "uploaded_1.pdf") by using content-based classification.
+    """
     courses: dict[str, dict[str, Path]] = {}
     pdf_files = sorted(Path(files_dir).glob("*.pdf"))
 
+    # Check if files have informative names or generic upload names
+    has_generic_names = any(
+        pdf.name.startswith("uploaded_") or not re.match(r"^[A-Z]{2,5}\s*\d{2,4}", pdf.name)
+        for pdf in pdf_files
+    )
+
+    # If all files have generic names, use content-based classification
+    if has_generic_names and all(
+        pdf.name.startswith("uploaded_") or not re.match(r"^[A-Z]{2,5}\s*\d{2,4}", pdf.name)
+        for pdf in pdf_files
+    ):
+        print("Using content-based file classification...")
+        client = get_client()
+        textbooks: list[Path] = []
+
+        for pdf_path in pdf_files:
+            print(f"  Classifying {pdf_path.name}...")
+            classification = _classify_file_by_content(client, pdf_path)
+
+            if classification:
+                course_code = classification.get("course_code")
+                file_type = classification.get("file_type", "").lower()
+
+                if file_type == "textbook" or not course_code:
+                    textbooks.append(pdf_path)
+                elif course_code:
+                    if course_code not in courses:
+                        courses[course_code] = {}
+
+                    if file_type == "syllabus":
+                        courses[course_code]["syllabus"] = pdf_path
+                    elif file_type in ("midterm", "overview"):
+                        courses[course_code]["midterm"] = pdf_path
+                    print(f"    -> {course_code} ({file_type})")
+
+        # Match textbooks to courses
+        if textbooks and courses:
+            print("Matching textbooks to courses...")
+            for textbook in textbooks:
+                best_match = _match_textbook_to_course(client, textbook, courses)
+                if best_match and "textbook" not in courses[best_match]:
+                    courses[best_match]["textbook"] = textbook
+                    print(f"    {textbook.name} -> {best_match}")
+
+        return courses
+
+    # Original filename-based classification
     for pdf_path in pdf_files:
         name = pdf_path.name
         # Extract course code like "PHYS 234" or "HLTH 204"
@@ -125,6 +210,46 @@ def classify_files(files_dir: str) -> dict[str, dict[str, Path]]:
     return courses
 
 
+def _match_textbook_to_course(client: genai.Client, textbook: Path, courses: dict[str, dict[str, Path]]) -> str | None:
+    """Use LLM to match a textbook to the most likely course based on syllabus content."""
+    # Get textbook info from first few pages
+    textbook_text = extract_pdf_text(str(textbook), max_pages=5)[:2000]
+
+    # Build course summaries from syllabi
+    course_info = {}
+    for code, files in courses.items():
+        if "syllabus" in files:
+            syllabus_text = extract_pdf_text(str(files["syllabus"]), max_pages=2)[:1500]
+            course_info[code] = syllabus_text
+
+    if not course_info:
+        return None
+
+    prompt = f"""Match this textbook to the correct course.
+
+TEXTBOOK (first pages):
+{textbook_text}
+
+COURSES AND THEIR SYLLABI:
+"""
+    for code, syllabus in course_info.items():
+        prompt += f"\n--- {code} ---\n{syllabus[:800]}\n"
+
+    prompt += f"""
+
+Which course code does this textbook belong to? Return ONLY a JSON object:
+{{"course_code": "<CODE>"}}
+
+Choose from: {list(course_info.keys())}"""
+
+    try:
+        raw = _llm_call(client, prompt)
+        result = json.loads(raw)
+        return result.get("course_code")
+    except Exception:
+        return None
+
+
 def _score_textbook_match(syllabus_text: str, candidate: Path) -> int:
     """Score how well a textbook PDF filename matches a syllabus.
 
@@ -160,7 +285,14 @@ def extract_pdf_text(pdf_path: str, max_pages: int | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 def parse_midterm_date(text: str) -> str:
-    """Extract midterm date from overview text using regex."""
+    """Extract midterm date from overview text using regex.
+
+    Args:
+        text: The full text content of a midterm overview document
+
+    Returns:
+        Date string in YYYY-MM-DD format, or empty string if not found
+    """
     match = re.search(r"Date:\s*(.+)", text)
     if match:
         date_str = match.group(1).strip()

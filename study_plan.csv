@@ -1,71 +1,13 @@
-# VALIDATION WARNINGS:
-# - WARNING: Day 2026-02-07 has 7.0 hours (exceeds user preference of 6 hours)
-# - WARNING: Day 2026-02-10 has 7.5 hours (exceeds user preference of 6 hours)
-# - WARNING: Day 2026-02-11 has 8.0 hours (exceeds user preference of 6 hours)
-# - ERROR: Day 2026-02-12 has 9.0 hours (exceeds 8 hour maximum)
-# - WARNING: Day 2026-02-13 has 6.5 hours (exceeds user preference of 6 hours)
-# - WARNING: Day 2026-02-14 has 7.5 hours (exceeds user preference of 6 hours)
-# - ERROR: Course PHYS 234 has study sessions on/after exam date (2026-02-26): ['2026-02-26']
-# - ERROR: Course SYSD 300 has study sessions on/after exam date (2026-02-24): ['2026-02-24', '2026-02-25', '2026-02-26']
-# - WARNING: Review too late for "SD Fundamentals & Perspective" (SYSD 300) (12 days after learning, expected <= 7)
-# - WARNING: Review too late for "The Modelling Process" (SYSD 300) (11 days after learning, expected <= 7)
-# - WARNING: Review too late for "Structure and Behaviour of Dynamic Systems" (SYSD 300) (9 days after learning, expected <= 7)
-# - WARNING: Review too late for "Causal Loop Diagrams (CLDs)" (SYSD 300) (8 days after learning, expected <= 7)
-# - WARNING: Review too late for "Stocks and Flows (S&F)" (SYSD 300) (8 days after learning, expected <= 7)
-# - WARNING: Review too late for "Dynamics of Stocks and Flows" (SYSD 300) (9 days after learning, expected <= 7)
-# - WARNING: Review too late for "Closing the Loop: Dynamics of Simple Structures (First-Order Systems)" (SYSD 300) (8 days after learning, expected <= 7)
-#
 Date,Course,Topic,Hours,Type,Notes
-2026-02-05,PHYS 234,Stern-Gerlach Experiments & Quantum State Vectors,3.0,learning,Initial learning session
-2026-02-05,SYSD 300,SD Fundamentals & Perspective,3.0,learning,Initial learning session
-2026-02-06,PHYS 234,Operators and Measurement,3.0,learning,Initial learning session
-2026-02-06,HLTH 204,Introduction to Statistics,3.0,learning,Initial learning session
-2026-02-07,PHYS 234,Schrödinger Time Evolution,3.0,learning,Initial learning session
-2026-02-07,SYSD 300,The Modelling Process,4.0,learning,Initial learning session
-2026-02-09,PHYS 234,Quantum Spookiness,1.0,learning,Initial learning session
-2026-02-09,HLTH 204,Exploring Data with Tables and Graphs,3.0,learning,Initial learning session
-2026-02-09,PHYS 234,Stern-Gerlach Experiments & Quantum State Vectors,1.0,review_1,First review (spaced repetition)
-2026-02-10,PHYS 234,Quantized Energies: Particle in a Box,4.0,learning,Initial learning session
-2026-02-10,SYSD 300,Structure and Behaviour of Dynamic Systems,3.0,learning,Initial learning session
-2026-02-10,HLTH 204,Introduction to Statistics,0.5,review_1,First review (spaced repetition)
-2026-02-11,PHYS 234,Unbound States,3.5,learning,Initial learning session
-2026-02-11,HLTH 204,"Describing, Exploring, and Comparing Data",3.5,learning,Initial learning session
-2026-02-11,PHYS 234,Operators and Measurement,1.0,review_1,First review (spaced repetition)
-2026-02-12,SYSD 300,Causal Loop Diagrams (CLDs),4.0,learning,Initial learning session
-2026-02-12,HLTH 204,Probability,4.0,learning,Initial learning session
-2026-02-12,PHYS 234,Schrödinger Time Evolution,1.0,review_1,First review (spaced repetition)
-2026-02-13,SYSD 300,Stocks and Flows (S&F),3.0,learning,Initial learning session
-2026-02-13,HLTH 204,Discrete Probability Distributions,3.0,learning,Initial learning session
-2026-02-13,PHYS 234,Quantum Spookiness,0.5,review_1,First review (spaced repetition)
-2026-02-14,SYSD 300,Dynamics of Stocks and Flows,5.0,learning,Initial learning session
-2026-02-14,HLTH 204,Exploring Data with Tables and Graphs,1.0,review_1,First review (spaced repetition)
-2026-02-14,PHYS 234,Quantized Energies: Particle in a Box,1.5,review_1,First review (spaced repetition)
-2026-02-16,SYSD 300,Closing the Loop: Dynamics of Simple Structures (First-Order Systems),3.0,learning,Initial learning session
-2026-02-16,HLTH 204,"Describing, Exploring, and Comparing Data",1.0,review_1,First review (spaced repetition)
-2026-02-16,PHYS 234,Unbound States,1.0,review_1,First review (spaced repetition)
-2026-02-17,SYSD 300,SD Fundamentals & Perspective,1.0,review_1,First review (spaced repetition)
-2026-02-17,HLTH 204,Probability,1.5,review_1,First review (spaced repetition)
-2026-02-17,PHYS 234,Stern-Gerlach Experiments & Quantum State Vectors,1.5,review_2,Final review before exam
-2026-02-18,SYSD 300,The Modelling Process,1.5,review_1,First review (spaced repetition)
-2026-02-18,HLTH 204,Discrete Probability Distributions,1.0,review_1,First review (spaced repetition)
-2026-02-18,PHYS 234,Operators and Measurement,1.5,review_2,Final review before exam
-2026-02-19,SYSD 300,Structure and Behaviour of Dynamic Systems,1.0,review_1,First review (spaced repetition)
-2026-02-19,HLTH 204,Introduction to Statistics,1.5,review_2,Final review before exam
-2026-02-19,PHYS 234,Schrödinger Time Evolution,1.5,review_2,Final review before exam
-2026-02-20,SYSD 300,Causal Loop Diagrams (CLDs),1.5,review_1,First review (spaced repetition)
-2026-02-20,HLTH 204,Exploring Data with Tables and Graphs,1.5,review_2,Final review before exam
-2026-02-20,PHYS 234,Quantum Spookiness,0.5,review_2,Final review before exam
-2026-02-21,SYSD 300,Stocks and Flows (S&F),1.0,review_1,First review (spaced repetition)
-2026-02-21,HLTH 204,"Describing, Exploring, and Comparing Data",1.5,review_2,Final review before exam
-2026-02-21,PHYS 234,Quantized Energies: Particle in a Box,1.5,review_2,Final review before exam
-2026-02-23,SYSD 300,Dynamics of Stocks and Flows,1.5,review_1,First review (spaced repetition)
-2026-02-23,HLTH 204,Probability,1.5,review_2,Final review before exam
-2026-02-23,PHYS 234,Unbound States,1.5,review_2,Final review before exam
-2026-02-24,SYSD 300,Closing the Loop: Dynamics of Simple Structures (First-Order Systems),1.0,review_1,First review (spaced repetition)
-2026-02-24,HLTH 204,Discrete Probability Distributions,1.5,review_2,Final review before exam
-2026-02-25,SYSD 300,SD Fundamentals & Perspective,1.0,review_2,Final review before exam
-2026-02-25,HLTH 204,Introduction to Statistics,1.0,review_2,Final review before exam
-2026-02-25,PHYS 234,Stern-Gerlach Experiments & Quantum State Vectors,1.0,review_2,Final review before exam
-2026-02-26,SYSD 300,The Modelling Process,1.0,review_2,Final review before exam
-2026-02-26,HLTH 204,Exploring Data with Tables and Graphs,1.0,review_2,Final review before exam
-2026-02-26,PHYS 234,Operators and Measurement,1.0,review_2,Final review before exam
+2026-02-06,HLTH 204,Introduction to Statistics,2.5,learning,Initial learning session
+2026-02-07,HLTH 204,Exploring Data with Tables and Graphs,2.5,learning,Initial learning session
+2026-02-08,HLTH 204,"Describing, Exploring, and Comparing Data",3.0,learning,Initial learning session
+2026-02-09,HLTH 204,Probability,4.0,learning,Initial learning session
+2026-02-10,HLTH 204,Introduction to Statistics,1.0,review_1,First review (spaced repetition)
+2026-02-11,HLTH 204,Exploring Data with Tables and Graphs,1.0,review_1,First review (spaced repetition)
+2026-02-12,HLTH 204,Discrete Probability Distributions,2.5,learning,Initial learning session
+2026-02-13,HLTH 204,"Describing, Exploring, and Comparing Data",1.0,review_1,First review (spaced repetition)
+2026-02-14,HLTH 204,Probability,1.5,review_1,First review (spaced repetition)
+2026-02-15,HLTH 204,Discrete Probability Distributions,1.0,review_1,First review (spaced repetition)
+2026-02-25,HLTH 204,"Describing, Exploring, and Comparing Data",1.0,review_2,Final review before exam
+2026-02-26,HLTH 204,Probability,1.5,review_2,Final review before exam
