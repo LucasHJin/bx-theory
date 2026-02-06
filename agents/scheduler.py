@@ -10,6 +10,64 @@ from .parser import get_client, _llm_call
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _safe_json_parse(raw: str, client, prompt: str, max_retries: int = 2) -> list | dict:
+    """Safely parse JSON from LLM response, retrying if malformed.
+
+    Args:
+        raw: The raw LLM response string
+        client: Gemini client for retry calls
+        prompt: Original prompt (for retry)
+        max_retries: Number of retry attempts
+
+    Returns:
+        Parsed JSON (list or dict)
+
+    Raises:
+        json.JSONDecodeError: If all retries fail
+    """
+    import re
+
+    for attempt in range(max_retries + 1):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            if attempt == max_retries:
+                print(f"    [JSON] Failed after {max_retries + 1} attempts: {e}")
+                raise
+
+            print(f"    [JSON] Parse error (attempt {attempt + 1}): {str(e)[:50]}...")
+
+            # Try to fix common issues
+            # 1. Truncated JSON - try to find last complete object
+            if "Unterminated" in str(e) or "Expecting" in str(e):
+                # Find last complete array element or object
+                # Look for last "}]" or "}," pattern
+                fixed = raw.rstrip()
+
+                # Try to close truncated JSON
+                if fixed.count('[') > fixed.count(']'):
+                    # Find last complete session object
+                    last_complete = fixed.rfind('},')
+                    if last_complete > 0:
+                        fixed = fixed[:last_complete + 1] + ']'
+                        # Also need to close any open day objects
+                        if '"sessions"' in fixed and fixed.count('{') > fixed.count('}'):
+                            fixed = fixed.rstrip(',') + '}]'
+                        try:
+                            result = json.loads(fixed)
+                            print(f"    [JSON] Fixed truncated JSON, recovered {len(result)} entries")
+                            return result
+                        except json.JSONDecodeError:
+                            pass
+
+            # 2. Retry with LLM asking for shorter response
+            print(f"    [JSON] Retrying with request for shorter response...")
+            retry_prompt = prompt + "\n\nIMPORTANT: Keep your response concise. If the schedule is long, reduce review sessions but ensure every topic has at least one learning session."
+            raw = _llm_call(client, retry_prompt)
+
+    return json.loads(raw)  # Final attempt
+
+
 def _get_valid_dates(start: str, end_exclusive: str, rest_days: list[str]) -> list[str]:
     """Return all valid study dates between start and end (exclusive),
     skipping any days whose weekday name is in rest_days."""
@@ -69,7 +127,18 @@ Each entry MUST use one of these exact course codes: {json.dumps(course_codes)}
 }}"""
 
     raw = _llm_call(client, prompt)
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(f"    [JSON] Error parsing priorities: {e}")
+        # Return a default priority structure based on exam dates
+        default_priorities = {"course_priorities": {}}
+        for code in course_codes:
+            default_priorities["course_priorities"][code] = {
+                "priority_score": 5.0,
+                "reasoning": "Default priority (JSON parsing failed)"
+            }
+        return default_priorities
 
 
 # ---------------------------------------------------------------------------
@@ -130,11 +199,28 @@ def generate_schedule(client, parser_output: ParserOutput, priorities: dict) -> 
     max_hours = prefs.get("max_hours_per_day")
     max_hours_rule = f"6. Total hours per day MUST NOT exceed {max_hours}." if max_hours else "6. Total hours per day should be reasonable (4-6 hours recommended)."
 
+    # Count total topics to adjust review strategy for large schedules
+    total_topics = sum(len(topics) for topics in valid_topics.values())
+
+    # Adjust review rules based on topic count to prevent overly long responses
+    if total_topics > 15:
+        review_rule_8 = "8. Due to many topics, only HIGH-PRIORITY topics (from highest priority course) need review_1 sessions. Other topics only need learning sessions."
+        review_rule_9 = "9. Skip review_2 sessions entirely to keep the schedule manageable."
+        print(f"  Note: {total_topics} topics detected, reducing review sessions for concise output")
+    elif total_topics > 10:
+        review_rule_8 = "8. Every topic SHOULD have a review_1 session 3-5 days after learning, but you may skip review_1 for low-page topics (< 20 pages) if needed."
+        review_rule_9 = "9. Only the highest-page topic per course should get a review_2 session."
+        print(f"  Note: {total_topics} topics detected, limiting review_2 sessions")
+    else:
+        review_rule_8 = "8. Every topic MUST appear at least once with type \"review_1\", scheduled 3-5 days after its \"learning\" session."
+        review_rule_9 = "9. High-page topics (>= 40 pages) should also get a \"review_2\" session, scheduled closer to the exam."
+
     prompt = f"""You are a study schedule generator. Produce a day-by-day study plan.
 
 ## CONTEXT
 today: "{today}"
 scheduling_window: "{start_date}" to "{valid_dates[-1]}" (inclusive)
+total_topics: {total_topics}
 
 ## COURSES
 {json.dumps(courses_spec, indent=2)}
@@ -159,8 +245,8 @@ scheduling_window: "{start_date}" to "{valid_dates[-1]}" (inclusive)
 5. "hours" must be a number > 0, with at most one decimal place.
 {max_hours_rule}
 7. Every topic for every course MUST appear exactly once with type "learning".
-8. Every topic MUST appear at least once with type "review_1", scheduled 3-5 days after its "learning" session.
-9. High-page topics (>= 40 pages) should also get a "review_2" session, scheduled closer to the exam.
+{review_rule_8}
+{review_rule_9}
 10. All sessions for a course MUST have a date STRICTLY BEFORE that course's midterm_date (i.e. on or before last_valid_study_date).
 11. The last study session for each course should be on or near last_valid_study_date (1-2 days before exam).
 12. Learning sessions: 2-4 hours based on topic page count. Review sessions: 0.5-1.5 hours.
@@ -187,7 +273,7 @@ Return a JSON array. Each element is a day object. Only include days with sessio
 Generate the complete schedule now."""
 
     raw = _llm_call(client, prompt)
-    return json.loads(raw)
+    return _safe_json_parse(raw, client, prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +332,20 @@ def regenerate_schedule(
     max_hours = prefs.get("max_hours_per_day")
     max_hours_rule = f"6. Total hours per day MUST NOT exceed {max_hours}." if max_hours else "6. Total hours per day should be reasonable (4-6 hours recommended)."
 
+    # Count total topics to adjust review strategy for large schedules
+    total_topics = sum(len(topics) for topics in valid_topics.values())
+
+    # Adjust review rules based on topic count to prevent overly long responses
+    if total_topics > 15:
+        review_rule_8 = "8. Due to many topics, only HIGH-PRIORITY topics (from highest priority course) need review_1 sessions. Other topics only need learning sessions."
+        review_rule_9 = "9. Skip review_2 sessions entirely to keep the schedule manageable."
+    elif total_topics > 10:
+        review_rule_8 = "8. Every topic SHOULD have a review_1 session 3-5 days after learning, but you may skip review_1 for low-page topics (< 20 pages) if needed."
+        review_rule_9 = "9. Only the highest-page topic per course should get a review_2 session."
+    else:
+        review_rule_8 = "8. Every topic MUST appear at least once with type \"review_1\", scheduled 3-5 days after its \"learning\" session."
+        review_rule_9 = "9. High-page topics (>= 40 pages) should also get a \"review_2\" session, scheduled closer to the exam."
+
     prompt = f"""You are a study schedule generator. Your PREVIOUS schedule had validation errors.
 Fix ALL of the errors listed below and produce a corrected day-by-day study plan.
 
@@ -258,6 +358,7 @@ Fix ALL of the errors listed below and produce a corrected day-by-day study plan
 ## CONTEXT
 today: "{today}"
 scheduling_window: "{start_date}" to "{valid_dates[-1] if valid_dates else 'N/A'}" (inclusive)
+total_topics: {total_topics}
 
 ## COURSES
 {json.dumps(courses_spec, indent=2)}
@@ -282,8 +383,8 @@ scheduling_window: "{start_date}" to "{valid_dates[-1] if valid_dates else 'N/A'
 5. "hours" must be a number > 0, with at most one decimal place.
 {max_hours_rule}
 7. Every topic for every course MUST appear exactly once with type "learning".
-8. Every topic MUST appear at least once with type "review_1", scheduled 3-5 days after its "learning" session.
-9. High-page topics (>= 40 pages) should also get a "review_2" session, scheduled closer to the exam.
+{review_rule_8}
+{review_rule_9}
 10. All sessions for a course MUST have a date STRICTLY BEFORE that course's midterm_date (i.e. on or before last_valid_study_date).
 11. The last study session for each course should be on or near last_valid_study_date (1-2 days before exam).
 12. Learning sessions: 2-4 hours based on topic page count. Review sessions: 0.5-1.5 hours.
@@ -310,7 +411,7 @@ Return a JSON array. Each element is a day object. Only include days with sessio
 Generate the corrected schedule now."""
 
     raw = _llm_call(client, prompt)
-    return json.loads(raw)
+    return _safe_json_parse(raw, client, prompt)
 
 
 # ---------------------------------------------------------------------------

@@ -89,8 +89,16 @@ def _check_study_before_exam(schedule: list[dict], parser_output: ParserOutput) 
 
 
 def _check_spaced_repetition(schedule: list[dict], parser_output: ParserOutput) -> list[str]:
-    """Check 4: Spaced repetition — learning + review with proper gaps."""
+    """Check 4: Spaced repetition — learning + review with proper gaps.
+
+    Note: For schedules with many topics (>10), we're more lenient about missing
+    review sessions since the scheduler intentionally reduces them to keep output concise.
+    """
     issues = []
+
+    # Count total topics to adjust strictness
+    total_topics = sum(len(course.topics) for course in parser_output.courses.values())
+    lenient_mode = total_topics > 10  # Match scheduler's threshold
 
     # Build per-course, per-topic session lists with dates
     topic_sessions: dict[str, dict[str, list[tuple[str, str]]]] = {}  # course -> topic -> [(date, type)]
@@ -114,6 +122,10 @@ def _check_spaced_repetition(schedule: list[dict], parser_output: ParserOutput) 
                 continue
 
             if not reviews:
+                # In lenient mode, only warn about missing reviews for high-page topics
+                if lenient_mode and topic.pages < 30:
+                    # Skip warning for low-page topics when there are many topics
+                    continue
                 issues.append(
                     f"WARNING: Topic \"{topic.name}\" ({code}) has no review sessions "
                     f"(no spaced repetition)"

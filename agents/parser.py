@@ -30,10 +30,16 @@ def get_client() -> genai.Client:
 MODEL = "gemini-3-flash-preview"
 
 
-def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
+def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5, max_output_tokens: int = 16384) -> str:
     """Call Gemini with automatic retry on rate-limit (429) and overload (503) errors.
 
     The SDK's internal retries are disabled so we control the pacing here.
+
+    Args:
+        client: Gemini client
+        prompt: The prompt to send
+        max_retries: Number of retry attempts for transient errors
+        max_output_tokens: Maximum tokens in response (default 16384 to prevent truncation)
     """
     for attempt in range(max_retries):
         try:
@@ -44,6 +50,7 @@ def _llm_call(client: genai.Client, prompt: str, max_retries: int = 5) -> str:
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     temperature=0.0,
+                    max_output_tokens=max_output_tokens,
                 ),
             )
             result = response.text or ""
